@@ -9,38 +9,29 @@
 ## Quick Start
 
 1. Clone repository
-\`\`\`bash
-git clone https://github.com/Sarakaev-Brothers/security-backend.git
-cd security-backend
-\`\`\`
+`git clone https://github.com/Sarakaev-Brothers/security-backend.git cd security-backend`
 
 2. Install dependencies
-\`\`\`bash
-pnpm install
-\`\`\`
+`pnpm install`
 
-3. Create .env file
-\`\`\`bash
-DATABASE_URL="postgresql://admin:admin123@localhost:5432/secure_yourself_db?schema=public"
+4. Create .env file
+`DATABASE_URL="postgresql://admin:admin123@localhost:5432/secure_yourself_db?schema=public"
 NODE_ENV=development
-PORT=3000
-\`\`\`
+PORT=3000`
 
-4. Start database
-\`\`\`bash
-docker-compose up -d
-\`\`\`
+5. Start database
+`docker-compose up -d`
 
-5. Run migrations
-\`\`\`bash
+6. Run migrations
+`
 pnpm prisma migrate dev
 pnpm prisma generate
-\`\`\`
+`
 
-6. Start application
-\`\`\`bash
+8. Start application
+`
 pnpm run start:dev
-\`\`\`
+`
 
 ## Development
 
@@ -57,11 +48,8 @@ pnpm run start:dev
 - Reset database: `docker-compose down -v && docker-compose up -d`
 
 ## Migration
-# 1. Добавьте DATABASE_URL в .env
-DATABASE_URL="postgresql://user:password@localhost:5432/secure_yourself"
-
-# 2. Создайте миграцию
+# 1. Создайте миграцию
 pnpm prisma migrate dev --name init
 
-# 3. Сгенерируйте Prisma Client
+# 2. Сгенерируйте Prisma Client
 pnpm prisma generate
