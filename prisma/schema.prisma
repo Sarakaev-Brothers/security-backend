@@ -12,3 +12,159 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ==============================================
+// User & Auth
+// ==============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  appleId   String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  ownedGroup      Group?       @relation("GroupOwner")
+  group           GroupMember?
+
+  @@map("users")
+}
+
+// ==============================================
+// Subscription Plans
+// ==============================================
+
+model Plan {
+  id         String  @id // "plan_5", "plan_10"
+  name       String // "Family 5", "Family 10"
+  maxMembers Int // 5, 10
+  priceUSD   Decimal @db.Decimal(10, 2)
+
+  // Apple IAP product identifier
+  appleProductId String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  groups Group[]
+
+  @@map("plans")
+}
+
+// ==============================================
+// Groups
+// ==============================================
+
+model Group {
+  id String @id @default(cuid())
+
+  ownerId String @unique
+  owner   User   @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  members       GroupMember[]
+  subscriptions Subscription[]
+  inviteLinks   InviteLink[]
+
+  @@map("groups")
+}
+
+// ============================================
+// Subscription
+// ============================================
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  REFUNDED
+  CANCELLED
+
+  @@map("subscription_status")
+}
+
+model Subscription {
+  id String @id @default(cuid())
+
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  // Apple transaction data
+  appleTransactionId         String @unique
+  appleOriginalTransactionId String
+
+  status    SubscriptionStatus @default(ACTIVE)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId])
+  @@index([status, expiresAt])
+  @@map("subscriptions")
+}
+
+// ============================================
+// Group Members
+// ============================================
+
+enum GroupMemberStatus {
+  PENDING // Slot is taken, user is not entered
+  ACTIVE // Active participant
+
+  @@map("group_member_status")
+}
+
+model GroupMember {
+  id String @id @default(cuid())
+
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status GroupMemberStatus @default(PENDING)
+
+  joinedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([groupId, userId])
+  @@index([groupId, status])
+  @@map("group_members")
+}
+
+// ============================================
+// Invite Links
+// ============================================
+
+model InviteLink {
+  id    String @id @default(cuid())
+  token String @unique @default(cuid())
+
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  // Can be attached to a specific slot
+  groupMemberId String? @unique
+
+  isActive  Boolean   @default(true)
+  expiresAt DateTime?
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@index([groupId, isActive])
+  @@map("invite_links")
+}

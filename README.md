@@ -55,3 +55,13 @@ pnpm run start:dev
 - View logs: `docker-compose logs -f postgres`
 - Stop database: `docker-compose stop`
 - Reset database: `docker-compose down -v && docker-compose up -d`
+
+## Migration
+# 1. Добавьте DATABASE_URL в .env
+DATABASE_URL="postgresql://user:password@localhost:5432/secure_yourself"
+
+# 2. Создайте миграцию
+pnpm prisma migrate dev --name init
+
+# 3. Сгенерируйте Prisma Client
+pnpm prisma generate
