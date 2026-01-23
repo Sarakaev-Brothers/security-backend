@@ -79,7 +79,6 @@ export class AuthService {
   async refresh(refreshToken: string) {
     const tokenData = await this.prisma.refreshToken.findUnique({
       where: { token: refreshToken },
-      include: { user: true },
     });
 
     if (!tokenData || tokenData.expiresAt < new Date()) {
@@ -95,7 +94,6 @@ export class AuthService {
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: this.sanitizeUser(tokenData.user),
     };
   }
 
@@ -109,8 +107,16 @@ export class AuthService {
 
   // 6. Генерация access token (короткоживущий)
   private generateAccessToken(userId: string): string {
-    const expiresIn = this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m');
-    return this.jwtService.sign({ sub: userId, type: 'access' }, { expiresIn });
+    const expiresIn = this.configService.get<string>(
+      'JWT_ACCESS_EXPIRES_IN',
+      '15m',
+    );
+
+    return this.jwtService.sign({
+      sub: userId,
+      type: 'access',
+      expiresIn: expiresIn,
+    });
   }
 
   // 7. Генерация и сохранение refresh token (долгоживущий)
@@ -121,10 +127,11 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    const token = this.jwtService.sign(
-      { sub: userId, type: 'refresh' },
-      { expiresIn: `${expiresInDays}d` },
-    );
+    const token = this.jwtService.sign({
+      sub: userId,
+      type: 'refresh',
+      expiresIn: `${expiresInDays}d`,
+    });
 
     await this.prisma.refreshToken.create({
       data: {
