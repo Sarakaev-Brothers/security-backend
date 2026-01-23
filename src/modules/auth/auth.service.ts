@@ -4,8 +4,10 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { PrismaService } from '../../database/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { User } from 'generated/prisma/client';
@@ -15,30 +17,29 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private prisma: PrismaService,
+    private configService: ConfigService,
   ) {}
 
   // 1. Регистрация через email/password
   async register(dto: RegisterDto) {
-    // Проверить, существует ли пользователь
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) {
       throw new ConflictException('User already exists');
     }
 
-    // Хэшировать пароль
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    // Создать пользователя
     const user = await this.usersService.create({
       email: dto.email,
       password: hashedPassword,
     });
 
-    // Сгенерировать токен
-    const accessToken = this.generateToken(user.id);
+    const tokens = await this.generateTokens(user.id);
 
     return {
-      accessToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: this.sanitizeUser(user),
     };
   }
@@ -50,10 +51,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const accessToken = this.generateToken(user.id);
+    const tokens = await this.generateTokens(user.id);
 
     return {
-      accessToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: this.sanitizeUser(user),
     };
   }
@@ -73,9 +75,80 @@ export class AuthService {
     return user;
   }
 
-  // 4. Генерация JWT токена
-  private generateToken(userId: string): string {
-    return this.jwtService.sign({ sub: userId });
+  // 4. Обновление токенов через refresh token
+  async refresh(refreshToken: string) {
+    const tokenData = await this.prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+      include: { user: true },
+    });
+
+    if (!tokenData || tokenData.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    await this.prisma.refreshToken.delete({
+      where: { id: tokenData.id },
+    });
+
+    const tokens = await this.generateTokens(tokenData.userId);
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: this.sanitizeUser(tokenData.user),
+    };
+  }
+
+  // 5. Генерация пары токенов (access + refresh)
+  private async generateTokens(userId: string) {
+    const accessToken = this.generateAccessToken(userId);
+    const refreshToken = await this.generateRefreshToken(userId);
+
+    return { accessToken, refreshToken };
+  }
+
+  // 6. Генерация access token (короткоживущий)
+  private generateAccessToken(userId: string): string {
+    const expiresIn = this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m');
+    return this.jwtService.sign({ sub: userId, type: 'access' }, { expiresIn });
+  }
+
+  // 7. Генерация и сохранение refresh token (долгоживущий)
+  private async generateRefreshToken(userId: string): Promise<string> {
+    const expiresInDays = parseInt(
+      this.configService.get('JWT_REFRESH_EXPIRES_IN_DAYS', '30'),
+    );
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+    const token = this.jwtService.sign(
+      { sub: userId, type: 'refresh' },
+      { expiresIn: `${expiresInDays}d` },
+    );
+
+    await this.prisma.refreshToken.create({
+      data: {
+        token,
+        userId,
+        expiresAt,
+      },
+    });
+
+    await this.cleanupExpiredTokens(userId);
+
+    return token;
+  }
+
+  // 8. Очистка истекших токенов пользователя
+  private async cleanupExpiredTokens(userId: string) {
+    await this.prisma.refreshToken.deleteMany({
+      where: {
+        userId,
+        expiresAt: {
+          lt: new Date(),
+        },
+      },
+    });
   }
 
   // 5. Удаление sensitive данных
