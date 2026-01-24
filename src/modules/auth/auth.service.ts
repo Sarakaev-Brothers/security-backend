@@ -103,7 +103,7 @@ export class AuthService {
 
       if (tokenRecord.isConsumed && !tokenRecord.isActive) {
         await tx.refreshToken.updateMany({
-          where: { userId: tokenRecord.userId },
+          where: { userId: tokenRecord.userId, isActive: true },
           data: { isActive: false },
         });
         throw new UnauthorizedException(
