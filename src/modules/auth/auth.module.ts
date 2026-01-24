@@ -1,22 +1,26 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
+import { EnvModule } from '../../config/env.module';
+import { EnvConfig } from '../../config/env.config';
+import { formatMs } from 'src/common/utils/format.utils';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET') || 'your-secret-key',
-        signOptions: { expiresIn: config.get('JWT_ACCESS_EXPIRES_IN', '15m') },
+      imports: [EnvModule],
+      inject: [EnvConfig],
+      useFactory: (env: EnvConfig) => ({
+        secret: env.JWT_SECRET,
+        signOptions: {
+          expiresIn: formatMs(env.JWT_ACCESS_EXPIRES_IN, 'm'),
+        },
       }),
     }),
   ],

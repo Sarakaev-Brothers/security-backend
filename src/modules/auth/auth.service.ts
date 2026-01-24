@@ -4,7 +4,6 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from 'src/database/prisma.service';
@@ -16,6 +15,8 @@ import {
   hashRefreshToken,
   generateRandomToken,
 } from 'src/common/utils/crypto.utils';
+import { EnvConfig } from 'src/config/env.config';
+import { formatMs } from 'src/common/utils/format.utils';
 
 @Injectable()
 export class AuthService {
@@ -23,7 +24,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private prisma: PrismaService,
-    private configService: ConfigService,
+    private env: EnvConfig,
   ) {}
 
   // 1. Регистрация через email/password
@@ -82,17 +83,14 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-    const refreshSecret =
-      this.configService.get<string>('JWT_REFRESH_SECRET') ??
-      this.configService.get<string>('JWT_SECRET') ??
-      '';
-
-    const tokenHash = hashRefreshToken(refreshToken, refreshSecret);
+    const tokenHash = hashRefreshToken(
+      refreshToken,
+      this.env.JWT_REFRESH_SECRET,
+    );
 
     return await this.prisma.$transaction(async (tx) => {
       const tokenRecord = await tx.refreshToken.findFirst({
         where: { token: tokenHash },
-        include: { parent: true },
       });
 
       if (!tokenRecord) {
@@ -113,15 +111,16 @@ export class AuthService {
         );
       }
 
-      const expiresInDays = parseInt(
-        this.configService.get('JWT_REFRESH_EXPIRES_IN_DAYS', '30'),
-        10,
-      );
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+      expiresAt.setDate(
+        expiresAt.getDate() + this.env.JWT_REFRESH_EXPIRES_IN_DAYS,
+      );
 
       const newRefreshToken = generateRandomToken();
-      const newHash = hashRefreshToken(newRefreshToken, refreshSecret);
+      const newHash = hashRefreshToken(
+        newRefreshToken,
+        this.env.JWT_REFRESH_SECRET,
+      );
 
       await tx.refreshToken.create({
         data: {
@@ -169,30 +168,25 @@ export class AuthService {
   }
 
   private generateAccessToken(userId: string): string {
-    const expiresIn = this.configService.get<string>(
-      'JWT_ACCESS_EXPIRES_IN',
-      '15m',
-    );
-
-    return this.jwtService.sign({ sub: userId, type: 'access', expiresIn });
+    return this.jwtService.sign({
+      sub: userId,
+      type: 'access',
+      expiresIn: formatMs(this.env.JWT_ACCESS_EXPIRES_IN, 'm'),
+    });
   }
 
   // 7. Генерация и сохранение refresh token (долгоживущий)
   private async generateRefreshToken(userId: string): Promise<string> {
-    const refreshSecret =
-      this.configService.get<string>('JWT_REFRESH_SECRET') ||
-      this.configService.get<string>('JWT_SECRET') ||
-      '';
-
-    const expiresInDays = parseInt(
-      this.configService.get('JWT_REFRESH_EXPIRES_IN_DAYS', '30'),
-      10,
-    );
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+    expiresAt.setDate(
+      expiresAt.getDate() + this.env.JWT_REFRESH_EXPIRES_IN_DAYS,
+    );
 
     const randomToken = generateRandomToken();
-    const tokenHash = hashRefreshToken(randomToken, refreshSecret);
+    const tokenHash = hashRefreshToken(
+      randomToken,
+      this.env.JWT_REFRESH_SECRET,
+    );
 
     await this.prisma.refreshToken.create({
       data: {

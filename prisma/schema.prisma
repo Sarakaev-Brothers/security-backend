@@ -183,7 +183,7 @@ model RefreshToken {
   userId     String
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentId   String?
-  parent     RefreshToken? @relation("RefreshTokenParent", fields: [parentId], references: [id], onDelete: Cascade)
+  parent     RefreshToken? @relation("RefreshTokenParent", fields: [parentId], references: [id], onDelete: SetNull)
   children   RefreshToken[] @relation("RefreshTokenParent")
   isActive   Boolean       @default(true)
   isConsumed Boolean       @default(false)
