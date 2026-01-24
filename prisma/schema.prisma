@@ -178,15 +178,21 @@ model InviteLink {
 // ============================================
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         String        @id @default(cuid())
+  token      String        @unique
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId   String?
+  parent     RefreshToken? @relation("RefreshTokenParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children   RefreshToken[] @relation("RefreshTokenParent")
+  isActive   Boolean       @default(true)
+  isConsumed Boolean       @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime      @default(now())
 
   @@index([token])
   @@index([userId])
   @@index([expiresAt])
+  @@index([userId, isActive])
   @@map("refresh_tokens")
 }

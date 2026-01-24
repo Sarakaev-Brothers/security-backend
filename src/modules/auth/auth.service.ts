@@ -7,10 +7,15 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
-import { PrismaService } from '../../database/prisma.service';
+import { PrismaService } from 'src/database/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { User } from 'generated/prisma/client';
+import { BCRYPT_SALT_ROUNDS } from 'src/config/auth.constants';
+import {
+  hashRefreshToken,
+  generateRandomToken,
+} from 'src/common/utils/crypto.utils';
 
 @Injectable()
 export class AuthService {
@@ -28,7 +33,7 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
     const user = await this.usersService.create({
       email: dto.email,
@@ -51,12 +56,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    await this.revokeAllTokensForUser(user.id);
+
     const tokens = await this.generateTokens(user.id);
 
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: this.sanitizeUser(user),
     };
   }
 
@@ -75,29 +81,86 @@ export class AuthService {
     return user;
   }
 
-  // 4. Обновление токенов через refresh token
   async refresh(refreshToken: string) {
-    const tokenData = await this.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+    const refreshSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET') ??
+      this.configService.get<string>('JWT_SECRET') ??
+      '';
+
+    const tokenHash = hashRefreshToken(refreshToken, refreshSecret);
+
+    return await this.prisma.$transaction(async (tx) => {
+      const tokenRecord = await tx.refreshToken.findFirst({
+        where: { token: tokenHash },
+        include: { parent: true },
+      });
+
+      if (!tokenRecord) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      if (!tokenRecord.isActive || tokenRecord.expiresAt < new Date()) {
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
+
+      if (tokenRecord.isConsumed && !tokenRecord.isActive) {
+        await tx.refreshToken.updateMany({
+          where: { userId: tokenRecord.userId },
+          data: { isActive: false },
+        });
+        throw new UnauthorizedException(
+          'Token reuse detected. All sessions revoked.',
+        );
+      }
+
+      const expiresInDays = parseInt(
+        this.configService.get('JWT_REFRESH_EXPIRES_IN_DAYS', '30'),
+        10,
+      );
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+      const newRefreshToken = generateRandomToken();
+      const newHash = hashRefreshToken(newRefreshToken, refreshSecret);
+
+      await tx.refreshToken.create({
+        data: {
+          token: newHash,
+          userId: tokenRecord.userId,
+          parentId: tokenRecord.id,
+          isActive: true,
+          isConsumed: false,
+          expiresAt,
+        },
+      });
+
+      await tx.refreshToken.update({
+        where: { id: tokenRecord.id },
+        data: { isConsumed: true },
+      });
+
+      if (tokenRecord.parentId) {
+        const grandparent = await tx.refreshToken.findUnique({
+          where: { id: tokenRecord.parentId },
+        });
+
+        if (grandparent?.isActive) {
+          await tx.refreshToken.update({
+            where: { id: grandparent.id },
+            data: { isActive: false },
+          });
+        }
+      }
+
+      const accessToken = this.generateAccessToken(tokenRecord.userId);
+
+      return {
+        accessToken,
+        refreshToken: newRefreshToken,
+      };
     });
-
-    if (!tokenData || tokenData.expiresAt < new Date()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
-
-    await this.prisma.refreshToken.delete({
-      where: { id: tokenData.id },
-    });
-
-    const tokens = await this.generateTokens(tokenData.userId);
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-    };
   }
 
-  // 5. Генерация пары токенов (access + refresh)
   private async generateTokens(userId: string) {
     const accessToken = this.generateAccessToken(userId);
     const refreshToken = await this.generateRefreshToken(userId);
@@ -105,45 +168,45 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  // 6. Генерация access token (короткоживущий)
   private generateAccessToken(userId: string): string {
     const expiresIn = this.configService.get<string>(
       'JWT_ACCESS_EXPIRES_IN',
       '15m',
     );
 
-    return this.jwtService.sign({
-      sub: userId,
-      type: 'access',
-      expiresIn: expiresIn,
-    });
+    return this.jwtService.sign({ sub: userId, type: 'access', expiresIn });
   }
 
   // 7. Генерация и сохранение refresh token (долгоживущий)
   private async generateRefreshToken(userId: string): Promise<string> {
+    const refreshSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET') ||
+      this.configService.get<string>('JWT_SECRET') ||
+      '';
+
     const expiresInDays = parseInt(
       this.configService.get('JWT_REFRESH_EXPIRES_IN_DAYS', '30'),
+      10,
     );
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    const token = this.jwtService.sign({
-      sub: userId,
-      type: 'refresh',
-      expiresIn: `${expiresInDays}d`,
-    });
+    const randomToken = generateRandomToken();
+    const tokenHash = hashRefreshToken(randomToken, refreshSecret);
 
     await this.prisma.refreshToken.create({
       data: {
-        token,
+        token: tokenHash,
         userId,
+        isActive: true,
+        isConsumed: false,
         expiresAt,
       },
     });
 
     await this.cleanupExpiredTokens(userId);
 
-    return token;
+    return randomToken;
   }
 
   // 8. Очистка истекших токенов пользователя
@@ -155,6 +218,14 @@ export class AuthService {
           lt: new Date(),
         },
       },
+    });
+  }
+
+  // 9. Отзыв всех токенов пользователя (при обнаружении reuse)
+  private async revokeAllTokensForUser(userId: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId },
+      data: { isActive: false },
     });
   }
 
