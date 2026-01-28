@@ -7,6 +7,9 @@ import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { PlansModule } from './modules/plans/plans.module';
+import { GroupsModule } from './modules/groups/groups.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { EnvModule } from './config/env.module';
 
 @Module({
@@ -21,6 +24,9 @@ import { EnvModule } from './config/env.module';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    PlansModule,
+    GroupsModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [

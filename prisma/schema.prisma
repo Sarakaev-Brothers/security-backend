@@ -28,9 +28,10 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  ownedGroup   Group?         @relation("GroupOwner")
-  group        GroupMember?
+  ownedGroup    Group?         @relation("GroupOwner")
+  group         GroupMember?
   refreshTokens RefreshToken[]
+  subscriptions Subscription[]
 
   @@map("users")
 }
@@ -52,7 +53,8 @@ model Plan {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  groups Group[]
+  groups        Group[]
+  subscriptions Subscription[]
 
   @@map("plans")
 }
@@ -98,8 +100,14 @@ enum SubscriptionStatus {
 model Subscription {
   id String @id @default(cuid())
 
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  groupId String?
+  group   Group?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   // Apple transaction data
   appleTransactionId         String @unique
@@ -112,7 +120,10 @@ model Subscription {
   updatedAt DateTime @updatedAt
 
   @@index([groupId])
+  @@index([userId])
+  @@index([planId])
   @@index([status, expiresAt])
+  @@index([userId, status])
   @@map("subscriptions")
 }
 
@@ -178,17 +189,17 @@ model InviteLink {
 // ============================================
 
 model RefreshToken {
-  id         String        @id @default(cuid())
-  token      String        @unique
+  id         String         @id @default(cuid())
+  token      String         @unique
   userId     String
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentId   String?
-  parent     RefreshToken? @relation("RefreshTokenParent", fields: [parentId], references: [id], onDelete: SetNull)
+  parent     RefreshToken?  @relation("RefreshTokenParent", fields: [parentId], references: [id], onDelete: SetNull)
   children   RefreshToken[] @relation("RefreshTokenParent")
-  isActive   Boolean       @default(true)
-  isConsumed Boolean       @default(false)
+  isActive   Boolean        @default(true)
+  isConsumed Boolean        @default(false)
   expiresAt  DateTime
-  createdAt  DateTime      @default(now())
+  createdAt  DateTime       @default(now())
 
   @@index([token])
   @@index([userId])
