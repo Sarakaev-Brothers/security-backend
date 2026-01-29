@@ -17,7 +17,7 @@ export class GroupsService {
   ) {}
 
   async getMyGroup(userId: string) {
-    const group = await this.groupsRepository.findByOwnerId(userId);
+    const group = await this.groupsRepository.findByMemberId(userId);
     if (!group) {
       throw new NotFoundException('Group not found');
     }
