@@ -25,6 +25,30 @@ export class GroupsRepository {
     });
   }
 
+  async findByMemberId(memberId: string) {
+    return this.prisma.group.findFirst({
+      where: { members: { some: { userId: memberId } } },
+      include: {
+        owner: true,
+        plan: true,
+        members: {
+          include: {
+            user: {
+              select: {
+                email: true,
+              },
+            },
+          },
+        },
+        subscriptions: {
+          where: { status: 'ACTIVE' },
+          orderBy: { expiresAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+  }
+
   async findById(id: string) {
     return this.prisma.group.findUnique({
       where: { id },
