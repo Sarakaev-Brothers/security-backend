@@ -22,7 +22,14 @@ services:
     networks:
       - secure-yourself-network
 
-# // Сюда будут добавляться другие сервисы, такие как Redis, RabbitMQ и т.д.
+  redis:
+    image: redis:7-alpine
+    container_name: secure-yourself-redis
+    expose:
+      - '6379'
+    restart: unless-stopped
+    networks:
+      - secure-yourself-network
 
 volumes:
   postgres_data:

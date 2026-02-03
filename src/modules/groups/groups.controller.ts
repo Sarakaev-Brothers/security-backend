@@ -4,6 +4,7 @@ import {
   Post,
   Delete,
   Param,
+  Body,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -28,6 +29,15 @@ export class GroupsController {
     return this.groupsService.createGroup(user.id);
   }
 
+  @Post(':groupId/invite')
+  @UseGuards(GroupOwnerGuard)
+  async inviteUsers(
+    @Param('groupId') groupId: string,
+    @Body() dto: { users: string[] },
+  ) {
+    return this.groupsService.inviteUsers(groupId, dto.users);
+  }
+
   @Delete(':groupId')
   @UseGuards(GroupOwnerGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -44,5 +54,34 @@ export class GroupsController {
     @CurrentUser() user: { id: string },
   ): Promise<void> {
     await this.groupsService.removeMember(groupId, memberId, user.id);
+  }
+
+  @Get(':groupId/members/public-keys')
+  async getMembersPublicKeys(@Param('groupId') groupId: string) {
+    return this.groupsService.getMembersPublicKeys(groupId);
+  }
+
+  @Post(':groupId/keys')
+  async updateKeys(
+    @Param('groupId') groupId: string,
+    @Body() dto: { version: number; keys: Record<string, string> },
+  ) {
+    return this.groupsService.updateGroupKeys(groupId, dto.version, dto.keys);
+  }
+
+  @Get(':groupId/keys')
+  async getMyKey(
+    @Param('groupId') groupId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.groupsService.getUserKey(groupId, user.id);
+  }
+
+  @Post(':groupId/rotate-key')
+  async rotateKey(
+    @Param('groupId') groupId: string,
+    @Body() dto: { version: number; keys: Record<string, string> },
+  ) {
+    return this.groupsService.updateGroupKeys(groupId, dto.version, dto.keys);
   }
 }

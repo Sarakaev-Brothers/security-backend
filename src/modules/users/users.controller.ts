@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Body,
   UseGuards,
   Request,
@@ -26,5 +27,15 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
   ) {
     return await this.usersService.update(req.user.id, dto);
+  }
+
+  @Post('public-keys')
+  async setPublicKey(
+    @Request() req: { user: { id: string } },
+    @Body() dto: { dhPublicKey: string },
+  ) {
+    return await this.usersService.update(req.user.id, {
+      dhPublicKey: dto.dhPublicKey,
+    });
   }
 }

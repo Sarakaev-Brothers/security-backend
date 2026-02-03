@@ -71,7 +71,16 @@ export class GroupsRepository {
 
   async create(data: { ownerId: string; planId: string }) {
     return this.prisma.group.create({
-      data,
+      data: {
+        ...data,
+        members: {
+          create: {
+            userId: data.ownerId,
+            status: 'ACTIVE',
+            joinedAt: new Date(),
+          },
+        },
+      },
       include: {
         owner: true,
         plan: true,
@@ -81,16 +90,98 @@ export class GroupsRepository {
     });
   }
 
+  async addMembers(groupId: string, userIds: string[]) {
+    return this.prisma.groupMember.createMany({
+      data: userIds.map((userId) => ({
+        groupId,
+        userId,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  async findGroupMemberIds(groupId: string) {
+    const members = await this.prisma.groupMember.findMany({
+      where: { groupId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
+
   async delete(id: string) {
     return this.prisma.group.delete({
       where: { id },
     });
   }
 
-  async update(id: string, data: { isActive?: boolean }) {
+  async update(
+    id: string,
+    data: {
+      isActive?: boolean;
+      currentKeyVersion?: number;
+      membersHash?: string;
+    },
+  ) {
     return this.prisma.group.update({
       where: { id },
       data,
+    });
+  }
+
+  async findMembersPublicKeys(groupId: string) {
+    const group = await this.prisma.group.findUnique({
+      where: { id: groupId },
+      select: {
+        members: {
+          select: {
+            user: {
+              select: {
+                id: true,
+                dhPublicKey: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    return group?.members.map((m) => m.user) || [];
+  }
+
+  async updateKeys(
+    groupId: string,
+    version: number,
+    keys: Record<string, string>,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const keyData = Object.entries(keys).map(([userId, encryptedKey]) => ({
+        groupId,
+        userId,
+        version,
+        encryptedKey,
+      }));
+
+      await tx.groupKey.createMany({
+        data: keyData,
+      });
+
+      return tx.group.update({
+        where: { id: groupId },
+        data: {
+          currentKeyVersion: version,
+        },
+      });
+    });
+  }
+
+  async findUserKey(groupId: string, userId: string, version: number) {
+    return this.prisma.groupKey.findUnique({
+      where: {
+        groupId_userId_version: {
+          groupId,
+          userId,
+          version,
+        },
+      },
     });
   }
 

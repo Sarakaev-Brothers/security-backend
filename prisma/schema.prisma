@@ -24,6 +24,8 @@ model User {
   appleId  String? @unique
   password String?
 
+  dhPublicKey String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -32,6 +34,7 @@ model User {
   group         GroupMember?
   refreshTokens RefreshToken[]
   subscriptions Subscription[]
+  groupKeys     GroupKey[]
 
   @@map("users")
 }
@@ -72,6 +75,9 @@ model Group {
   planId String
   plan   Plan   @relation(fields: [planId], references: [id])
 
+  currentKeyVersion Int?
+  membersHash       String?
+
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -80,8 +86,25 @@ model Group {
   members       GroupMember[]
   subscriptions Subscription[]
   inviteLinks   InviteLink[]
+  keys          GroupKey[]
 
   @@map("groups")
+}
+
+model GroupKey {
+  id           String @id @default(cuid())
+  groupId      String
+  group        Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version      Int
+  encryptedKey String // base64 encoded encrypted group key for this user
+
+  createdAt DateTime @default(now())
+
+  @@unique([groupId, userId, version])
+  @@index([groupId, version])
+  @@map("group_keys")
 }
 
 // ============================================
