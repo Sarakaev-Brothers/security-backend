@@ -1,56 +1,54 @@
-# 🔐 Архитектура авторизации (масштабируемая)
+# 🔐 Authorization Architecture (Scalable)
 
-## Концепция: **Multi-Provider Auth**
+## Concept: **Multi-Provider Auth**
 
-```
-User
-├── email (unique)
-├── password? (nullable) ← для email/password
-└── appleId? (nullable)  ← для Apple Sign-In
-```
+    User
+    ├── email (unique)
+    ├── password? (nullable) ← for email/password
+    └── appleId? (nullable)  ← for Apple Sign‑In
 
-**Идея:** Один пользователь может иметь несколько способов входа.
+**Idea:** One user can have multiple login methods.
 
----
+------------------------------------------------------------------------
 
-## 📐 Структура Auth Module
+## 📐 Auth Module Structure
 
-```typescript
+``` ts
 src/modules/auth/
 ├── auth.module.ts
 ├── auth.controller.ts
 ├── auth.service.ts
 ├── strategies/
-│   ├── jwt.strategy.ts           // Для валидации JWT токена
-│   ├── local.strategy.ts         // Для email/password (сейчас)
-│   └── apple.strategy.ts         // Для Apple Sign-In (позже)
+│   ├── jwt.strategy.ts           // For validating JWT token
+│   ├── local.strategy.ts         // For email/password (current)
+│   └── apple.strategy.ts         // For Apple Sign-In (future)
 ├── guards/
-│   ├── jwt-auth.guard.ts         // Защита endpoints
-│   ├── local-auth.guard.ts       // Для login endpoint
-│   └── public.guard.ts           // Для публичных endpoints
+│   ├── jwt-auth.guard.ts         // Protect endpoints
+│   ├── local-auth.guard.ts       // For login endpoint
+│   └── public.guard.ts           // For public endpoints
 └── dto/
     ├── register.dto.ts           // { email, password }
     ├── login.dto.ts              // { email, password }
-    ├── apple-signin.dto.ts       // { identityToken } (позже)
+    ├── apple-signin.dto.ts       // { identityToken } (future)
     └── auth-response.dto.ts      // { accessToken, user }
 ```
 
----
+------------------------------------------------------------------------
 
-## 🎯 План реализации
+## 🎯 Implementation Plan
 
-### Phase 1: Email/Password Auth (сейчас)
+### Phase 1: Email/Password Auth (current)
 
-#### 1.1 Обновить Prisma Schema
+#### 1.1 Update Prisma Schema
 
-```prisma
+``` prisma
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   
   // Auth providers
-  password  String?  // bcrypt hash, nullable для Apple
-  appleId   String?  @unique  // для будущей интеграции
+  password  String?  // bcrypt hash, nullable for Apple
+  appleId   String?  @unique  // for future integration
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -63,16 +61,17 @@ model User {
 }
 ```
 
-**Миграция:**
-```bash
+Migration:
+
+``` bash
 pnpm prisma migrate dev --name add_auth_providers
 ```
 
----
+------------------------------------------------------------------------
 
-#### 1.2 Auth Service (универсальный)
+#### 1.2 Auth Service (Universal)
 
-```typescript
+``` ts
 // auth/auth.service.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -87,24 +86,20 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  // 1. Регистрация через email/password
+  // 1. Register with email/password
   async register(dto: RegisterDto) {
-    // Проверить, существует ли пользователь
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) {
       throw new ConflictException('User already exists');
     }
 
-    // Хэшировать пароль
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    // Создать пользователя
     const user = await this.usersService.create({
       email: dto.email,
       password: hashedPassword,
     });
 
-    // Сгенерировать токен
     const accessToken = this.generateToken(user.id);
 
     return {
@@ -113,7 +108,7 @@ export class AuthService {
     };
   }
 
-  // 2. Логин через email/password
+  // 2. Login with email/password
   async login(dto: LoginDto) {
     const user = await this.validateUser(dto.email, dto.password);
     if (!user) {
@@ -128,7 +123,7 @@ export class AuthService {
     };
   }
 
-  // 3. Валидация пользователя (для LocalStrategy)
+  // 3. Validate user (used in LocalStrategy)
   async validateUser(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
     if (!user || !user.password) {
@@ -143,35 +138,31 @@ export class AuthService {
     return user;
   }
 
-  // 4. Генерация JWT токена
+  // 4. Generate JWT token
   private generateToken(userId: string): string {
     return this.jwtService.sign({ sub: userId });
   }
 
-  // 5. Удаление sensitive данных
+  // 5. Remove sensitive data
   private sanitizeUser(user: any) {
     const { password, ...result } = user;
     return result;
   }
 
-  // ========== ПОЗЖЕ ДОБАВИМ ==========
-  
-  // 6. Apple Sign-In (будет добавлено позже)
+  // ========== ADD LATER ==========
+
+  // Apple Sign-In
   async signInWithApple(identityToken: string) {
-    // 1. Верифицировать токен через Apple
     const appleUser = await this.verifyAppleToken(identityToken);
     
-    // 2. Найти или создать пользователя
     let user = await this.usersService.findByAppleId(appleUser.sub);
     if (!user) {
       user = await this.usersService.create({
         email: appleUser.email,
         appleId: appleUser.sub,
-        // password = null для Apple users
       });
     }
     
-    // 3. Сгенерировать JWT
     const accessToken = this.generateToken(user.id);
     
     return {
@@ -182,11 +173,11 @@ export class AuthService {
 }
 ```
 
----
+------------------------------------------------------------------------
 
-#### 1.3 JWT Strategy (общая для всех провайдеров)
+#### 1.3 JWT Strategy (shared across providers)
 
-```typescript
+``` ts
 // auth/strategies/jwt.strategy.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
@@ -212,16 +203,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException();
     }
-    return user; // Попадёт в request.user
+    return user;
   }
 }
 ```
 
----
+------------------------------------------------------------------------
 
 #### 1.4 Auth Controller
 
-```typescript
+``` ts
 // auth/auth.controller.ts
 import { Controller, Post, Body, UseGuards, Get, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -233,7 +224,6 @@ import { Public } from '../../common/decorators/public.decorator';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  // Публичные endpoints
   @Public()
   @Post('register')
   async register(@Body() dto: RegisterDto) {
@@ -246,15 +236,12 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
-  // Защищённый endpoint (пример)
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req) {
     return req.user;
   }
 
-  // ========== ПОЗЖЕ ДОБАВИМ ==========
-  
   @Public()
   @Post('apple')
   async signInWithApple(@Body() dto: AppleSignInDto) {
@@ -263,12 +250,11 @@ export class AuthController {
 }
 ```
 
----
+------------------------------------------------------------------------
 
-#### 1.5 DTOs с валидацией
+#### 1.5 DTOs with validation
 
-```typescript
-// auth/dto/register.dto.ts
+``` ts
 import { IsEmail, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
@@ -279,63 +265,26 @@ export class RegisterDto {
   @MinLength(6)
   password: string;
 }
-
-// auth/dto/login.dto.ts
-import { IsEmail, IsString } from 'class-validator';
-
-export class LoginDto {
-  @IsEmail()
-  email: string;
-
-  @IsString()
-  password: string;
-}
-
-// auth/dto/auth-response.dto.ts
-export class AuthResponseDto {
-  accessToken: string;
-  user: {
-    id: string;
-    email: string;
-    createdAt: Date;
-  };
-}
 ```
 
----
+------------------------------------------------------------------------
 
 #### 1.6 Guards
 
-```typescript
-// auth/guards/jwt-auth.guard.ts
-import { Injectable } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-
+``` ts
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {}
-
-// common/decorators/public.decorator.ts
-import { SetMetadata } from '@nestjs/common';
-
-export const IS_PUBLIC_KEY = 'isPublic';
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 ```
 
----
+``` ts
+export const Public = () => SetMetadata('isPublic', true);
+```
+
+------------------------------------------------------------------------
 
 #### 1.7 Auth Module
 
-```typescript
-// auth/auth.module.ts
-import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
-import { UsersModule } from '../users/users.module';
-
+``` ts
 @Module({
   imports: [
     UsersModule,
@@ -356,21 +305,19 @@ import { UsersModule } from '../users/users.module';
 export class AuthModule {}
 ```
 
----
+------------------------------------------------------------------------
 
-## 🔄 Как добавить Apple Sign-In позже
+## 🔄 Adding Apple Sign-In Later
 
-### Шаг 1: Добавить зависимости
+### Step 1
 
-```bash
+``` bash
 pnpm add apple-signin-auth
 ```
 
-### Шаг 2: Добавить Apple Strategy
+### Step 2
 
-```typescript
-// auth/strategies/apple.strategy.ts
-import { Injectable } from '@nestjs/common';
+``` ts
 import appleSignIn from 'apple-signin-auth';
 
 @Injectable()
@@ -378,7 +325,6 @@ export class AppleAuthService {
   async verifyToken(identityToken: string) {
     const appleUser = await appleSignIn.verifyIdToken(identityToken, {
       audience: process.env.APPLE_CLIENT_ID,
-      // дополнительные настройки
     });
     
     return {
@@ -389,105 +335,69 @@ export class AppleAuthService {
 }
 ```
 
-### Шаг 3: Обновить AuthService
+------------------------------------------------------------------------
 
-Просто раскомментировать метод `signInWithApple()` — он уже готов! ✅
+## 🔐 Global Protection with Exceptions
 
----
-
-## 🔐 Глобальная защита с исключениями
-
-```typescript
-// app.module.ts
-import { APP_GUARD } from '@nestjs/core';
-import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
-
-@Module({
-  providers: [
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard, // Все endpoints защищены по умолчанию
-    },
-  ],
-})
-export class AppModule {}
-
-// Публичные endpoints помечаются @Public()
-@Public()
-@Post('auth/login')
-async login() { ... }
+``` ts
+providers: [
+  {
+    provide: APP_GUARD,
+    useClass: JwtAuthGuard,
+  },
+]
 ```
 
----
+Public endpoints:
 
-## 📦 Dependencies для установки
+``` ts
+@Public()
+@Post('auth/login')
+```
 
-```bash
+------------------------------------------------------------------------
+
+## 📦 Dependencies
+
+``` bash
 pnpm add @nestjs/jwt @nestjs/passport @nestjs/config passport passport-jwt bcrypt class-validator class-transformer
 pnpm add -D @types/passport-jwt @types/bcrypt
 ```
 
----
+------------------------------------------------------------------------
 
-## 🧪 Тестирование через Postman
+## 🧪 Postman Testing
 
-### 1. Register
-```http
-POST http://localhost:3000/auth/register
-Content-Type: application/json
+### Register
 
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
+    POST /auth/register
 
-**Response:**
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "clxxx...",
-    "email": "test@example.com",
-    "createdAt": "2026-01-23T..."
-  }
-}
-```
+### Login
 
-### 2. Login
-```http
-POST http://localhost:3000/auth/login
-Content-Type: application/json
+    POST /auth/login
 
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
+### Get Profile
 
-### 3. Get Profile (защищённый endpoint)
-```http
-GET http://localhost:3000/auth/me
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
+    GET /auth/me
+    Authorization: Bearer TOKEN
 
----
+------------------------------------------------------------------------
 
-## ✅ Преимущества такой архитектуры
+## ✅ Advantages of This Architecture
 
-1. **Масштабируемость** — легко добавить новые провайдеры (Google, Facebook)
-2. **Единый JWT токен** — работает для всех методов auth
-3. **Nullable поля** — `password?` и `appleId?` позволяют иметь разные способы входа
-4. **Чистый код** — отделение strategies от бизнес-логики
-5. **Безопасность** — bcrypt + JWT best practices
+1.  Scalable --- easy to add providers (Google, Facebook)
+2.  Single JWT system
+3.  Flexible auth methods
+4.  Clean separation of strategies
+5.  Secure password hashing with bcrypt
 
----
+------------------------------------------------------------------------
 
-## 🚀 Порядок действий
+## 🚀 Implementation Order
 
-1. Обновить Prisma schema (добавить `password`)
-2. Создать DatabaseModule + PrismaService
-3. Создать UsersModule (repository, service, controller)
-4. Создать AuthModule (service, controller, JWT strategy, guards, DTOs)
-5. Установить все зависимости
-6. Настроить ConfigModule для JWT
+1.  Update Prisma schema
+2.  Create DatabaseModule + PrismaService
+3.  Create UsersModule
+4.  Create AuthModule
+5.  Install dependencies
+6.  Configure ConfigModule for JWT
