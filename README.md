@@ -49,8 +49,8 @@ pnpm run start:dev
 - Reset database: `docker-compose down -v && docker-compose up -d`
 
 ## Migration
-### 1. Create a migration
-pnpm prisma migrate dev --name init
+1. Create a migration
+`pnpm prisma migrate dev --name init`
 
-### 2. Generate Prisma Client
-pnpm prisma generate
+2. Generate Prisma Client
+`pnpm prisma generate`
