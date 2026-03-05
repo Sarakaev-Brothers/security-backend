@@ -1,167 +1,168 @@
 # Backend Subscription & Group Architecture (iOS IAP)
 
-## Кратко
+## Overview
 
-* Пользователь **покупает подписку**
-* Подписка **создаёт группу**
-* Доступ получают **участники группы**
-* Apple **только подтверждает платежи**
-* Вся бизнес-логика — **на бэке**
-
----
-
-## Основная идея
-
-> **Подписка принадлежит группе, а не пользователю**
-
-Пользователь платит → становится владельцем группы → приглашает других → доступ проверяется по группе и подписке.
+- A user **purchases a subscription**
+- The subscription **creates a group**
+- **Group members** receive access
+- Apple **only confirms payments**
+- All business logic is handled **on the backend**
 
 ---
 
-## Сущности и ответственность
+## Core Idea
+
+> **The subscription belongs to the group, not the user.**
+
+A user pays → becomes the group owner → invites other members → access is validated through the group and its subscription.
+
+---
+
+## Entities & Responsibilities
 
 ### User
 
-* Аккаунт пользователя
-* Может быть участником **только одной группы**
-* Не хранит подписку
+- Represents a user account
+- Can be a member of **only one group**
+- Does **not** store subscription data
 
 ---
 
 ### Plan
 
-Статический справочник.
+Static reference data.
 
-* `plan_5` → 5 человек
-* `plan_10` → 10 человек
+- `plan_5` → 5 members
+- `plan_10` → 10 members
 
 ---
 
 ### Group
 
-* Логическое объединение пользователей
-* Имеет владельца (payer)
-* Использует план
-* Может быть удалена / отключена
+- Logical collection of users
+- Has an **owner (payer)**
+- Uses a **plan**
+- Can be disabled or deleted
 
 ---
 
 ### Subscription
 
-* **Запись в БД**
-* Принадлежит группе
-* Источник правды о доступе
+- A **database record**
+- Belongs to a **group**
+- Serves as the **source of truth for access control**
 
-Хранит:
+Stores:
 
-* `appleTransactionId`
-* `expiresAt`
-* `status: active | expired | refunded`
+- `appleTransactionId`
+- `expiresAt`
+- `status: active | expired | refunded`
 
 ---
 
 ### GroupMember
 
-* Связь User ↔ Group
-* `pending` — слот занят, пользователь ещё не вошёл
-* `active` — пользователь в группе
+Relationship between **User ↔ Group**
+
+- `pending` — slot reserved, user has not joined yet
+- `active` — user is part of the group
 
 ---
 
 ### InviteLink
 
-* Одноразовая ссылка
-* Создаёт `pending`-слот
-* Может быть отозвана владельцем
+- A **single-use invite link**
+- Creates a `pending` slot
+- Can be revoked by the group owner
 
 ---
 
-## Поток покупки
+## Purchase Flow
 
 ### iOS
 
-1. Покупка через StoreKit
-2. Получение `transactionId`
-3. Отправка `transactionId` на backend
+1. Purchase via StoreKit
+2. Receive `transactionId`
+3. Send `transactionId` to the backend
 
 ### Backend
 
-1. Проверка транзакции через Apple API
-2. Создание `Group`
-3. Создание `Subscription (active)`
-4. Пользователь становится `owner` группы
+1. Validate the transaction via the Apple API
+2. Create a `Group`
+3. Create a `Subscription (active)`
+4. The user becomes the **group owner**
 
 ---
 
-## Поток приглашения
+## Invite Flow
 
-1. Владелец создаёт invite-link
-2. Создаётся `GroupMember (pending)`
-3. Лимит слотов уменьшается
-4. Пользователь входит по ссылке
+1. Owner creates an invite link
+2. `GroupMember (pending)` is created
+3. Slot limit decreases
+4. User joins via the invite link
 5. `pending → active`
 
-Владелец может:
+Owner can:
 
-* удалить pending
-* выгнать active
-* удалить группу
+- remove pending members
+- remove active members
+- delete the group
 
-Участник может:
+Members can:
 
-* выйти из группы в любой момент
-
----
-
-## Проверка доступа (runtime)
-
-**Apple не дергается.**
-
-Алгоритм:
-
-1. Найти группу пользователя
-2. Найти подписку группы
-3. Проверить:
-
-   * `status === active`
-   * `expiresAt > now`
-
-Если да → доступ разрешён.
+- leave the group at any time
 
 ---
 
-## Продление / отзыв подписки
+## Access Validation (Runtime)
 
-Используются **App Store Server Notifications** (webhooks):
+**Apple is not queried during runtime.**
 
-* `DID_RENEW` → обновить `expiresAt`
-* `EXPIRED` → `status = expired`
-* `REFUND` → `status = refunded`
+Algorithm:
 
-Клиент в этом не участвует.
+1. Find the user's group
+2. Find the group's subscription
+3. Check:
 
----
+   - `status === active`
+   - `expiresAt > now`
 
-## Почему так
-
-* Один платёж = одна группа
-* Простая проверка доступа
-* Чёткое разделение ответственности
-* Масштабируется
-* Apple изолирован от бизнес-логики
+If both conditions are true → access is granted.
 
 ---
 
-## Технологии
+## Subscription Renewal / Revocation
 
-* **NestJS**
-* **PostgreSQL**
-* **Prisma**
-* Apple App Store Server API
+Handled via **App Store Server Notifications (webhooks)**:
+
+- `DID_RENEW` → update `expiresAt`
+- `EXPIRED` → `status = expired`
+- `REFUND` → `status = refunded`
+
+The client is **not involved** in this process.
 
 ---
 
-## Ключевая мысль
+## Why This Architecture
 
-> **Подписка — это запись в БД, а не состояние в Apple.**
-> Apple подтверждает события, backend управляет доступом.
+- One payment = one group
+- Simple access validation
+- Clear separation of responsibilities
+- Scales well
+- Apple is isolated from business logic
+
+---
+
+## Technologies
+
+- **NestJS**
+- **PostgreSQL**
+- **Prisma**
+- Apple **App Store Server API**
+
+---
+
+## Key Idea
+
+> **A subscription is a database record, not a state inside Apple.**  
+> Apple confirms events, while the backend controls access.
