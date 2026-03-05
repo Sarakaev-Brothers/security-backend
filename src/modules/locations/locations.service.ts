@@ -40,13 +40,11 @@ export class LocationsService {
     const geoKey = this.getGeoKey(data.groupId, userId);
     const indexKey = this.getGeoIndexKey(data.groupId);
 
-    // Атомарное обновление через MULTI: сохраняем payload и обновляем индекс группы
-    // Используем короткие TTL для real-time данных
     await this.redis
       .multi()
-      .set(geoKey, data.payload, 'EX', 60) // TTL 60 секунд для payload
+      .set(geoKey, data.payload, 'EX', 60)
       .sadd(indexKey, userId)
-      .expire(indexKey, 120) // TTL 120 секунд для индекса
+      .expire(indexKey, 120)
       .exec();
 
     return { success: true };
@@ -61,7 +59,6 @@ export class LocationsService {
     const keys = userIds.map((userId) => this.getGeoKey(groupId, userId));
     const values = await this.redis.mget(...keys);
 
-    // Возвращаем только существующие (не протухшие) шифротексты
     return values.filter((v): v is string => v !== null);
   }
 
