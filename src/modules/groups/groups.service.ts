@@ -96,7 +96,6 @@ export class GroupsService {
 
     await this.groupsRepository.deleteMember(groupId, memberId);
 
-    // Очистка геоданных участника при выходе из группы
     await this.locationsService.onGroupLeave(groupId, memberId);
 
     const allMemberIds =
