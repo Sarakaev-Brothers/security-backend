@@ -27,7 +27,6 @@ export class AuthService {
     private env: EnvConfig,
   ) {}
 
-  // 1. Регистрация через email/password
   async register(dto: RegisterDto) {
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) {
@@ -50,7 +49,6 @@ export class AuthService {
     };
   }
 
-  // 2. Логин через email/password
   async login(dto: LoginDto) {
     const user = await this.validateUser(dto.email, dto.password);
     if (!user) {
@@ -67,7 +65,6 @@ export class AuthService {
     };
   }
 
-  // 3. Валидация пользователя (для LocalStrategy)
   async validateUser(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
     if (!user || !user.password) {
@@ -175,7 +172,6 @@ export class AuthService {
     });
   }
 
-  // 7. Генерация и сохранение refresh token (долгоживущий)
   private async generateRefreshToken(userId: string): Promise<string> {
     const expiresAt = new Date();
     expiresAt.setDate(
@@ -203,7 +199,6 @@ export class AuthService {
     return randomToken;
   }
 
-  // 8. Очистка истекших токенов пользователя
   private async cleanupExpiredTokens(userId: string) {
     await this.prisma.refreshToken.deleteMany({
       where: {
@@ -215,7 +210,6 @@ export class AuthService {
     });
   }
 
-  // 9. Отзыв всех токенов пользователя (при обнаружении reuse)
   private async revokeAllTokensForUser(userId: string) {
     await this.prisma.refreshToken.updateMany({
       where: { userId },
@@ -223,7 +217,6 @@ export class AuthService {
     });
   }
 
-  // 5. Удаление sensitive данных
   private sanitizeUser(user: User) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...result } = user;
