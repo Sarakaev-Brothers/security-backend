@@ -6,6 +6,7 @@ import { GroupsController } from './groups.controller';
 import { PlansModule } from '../plans/plans.module';
 import { UsersModule } from '../users/users.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { LocationsModule } from '../locations/locations.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
     PlansModule,
     UsersModule,
     forwardRef(() => SubscriptionsModule),
+    forwardRef(() => LocationsModule),
   ],
   providers: [GroupsService, GroupsRepository],
   controllers: [GroupsController],

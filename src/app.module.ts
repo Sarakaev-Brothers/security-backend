@@ -10,7 +10,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { GroupsModule } from './modules/groups/groups.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { LocationsModule } from './modules/locations/locations.module';
 import { EnvModule } from './config/env.module';
+import { RedisModule } from '@nestjs-modules/ioredis';
+import { EnvConfig } from './config/env.config';
 
 @Module({
   imports: [
@@ -21,12 +24,21 @@ import { EnvModule } from './config/env.module';
       throttlers: [{ ttl: 60000, limit: 100 }],
     }),
     EnvModule,
+    RedisModule.forRootAsync({
+      imports: [EnvModule],
+      inject: [EnvConfig],
+      useFactory: (config: EnvConfig) => ({
+        type: 'single',
+        url: `redis://${config.REDIS_HOST}:${config.REDIS_PORT}`,
+      }),
+    }),
     DatabaseModule,
     UsersModule,
     AuthModule,
     PlansModule,
     GroupsModule,
     SubscriptionsModule,
+    LocationsModule,
   ],
   controllers: [AppController],
   providers: [

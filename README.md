@@ -36,6 +36,7 @@ pnpm run start:dev
 ## Development
 
 - Start dev server: `pnpm run start:dev`
+- Swagger Documentation: `http://localhost:3000/docs`
 - Run tests: `pnpm test`
 - Open Prisma Studio: `pnpm prisma studio`
 - Format code: `pnpm run format`
