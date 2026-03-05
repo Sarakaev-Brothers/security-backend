@@ -1,115 +1,134 @@
-# End-to-End Group Key System — Variant B (Always-On Group Key)
+# End-to-End Group Key System --- Variant B (Always-On Group Key)
 
-## Цель
-Реализовать систему E2EE для геолокации, где:
-- **В группе всегда существует валидный групповой ключ.**
-- Любое изменение состава группы → **немедленная ротация ключа**.
-- Сервер не имеет доступа к расшифрованным данным (zero-knowledge).
+## Goal
 
-> Ключевой инвариант: `group has exactly 1 active groupKey at any time`.
+Implement an E2EE system for location sharing where: - **A valid group
+key always exists in the group.** - Any change in group membership →
+**immediate key rotation**. - The server has no access to decrypted data
+(**zero-knowledge**).
 
----
+> Key invariant: `group has exactly 1 active groupKey at any time`.
 
-## Архитектура
-- Клиент: React Native (iOS)
-- Сервер: NestJS
-- Хранилища:
-  - Redis — real-time payload (TTL)
-  - Postgres (опционально) — история (только шифротекст)
+------------------------------------------------------------------------
 
----
+## Architecture
 
-## Криптография (не менять)
-| Задача | Алгоритм |
-|---|---|
-| User keys (подписи) | Ed25519 (опционально для MVP) |
-| Key exchange | X25519 (ECDH) |
-| Group key | 32 bytes (AES-256) |
-| Payload | AES-256-GCM |
-| Хранение на клиенте | iOS Keychain / Secure Enclave |
+-   Client: React Native (iOS)
+-   Server: NestJS
+-   Storage:
+    -   Redis --- real-time payload (TTL)
+    -   Postgres (optional) --- history (ciphertext only)
 
----
+------------------------------------------------------------------------
 
-## Базовый инвариант (важно)
-1. В группе **никогда не бывает состояния без ключа**.
-2. При изменении состава (join/leave):
-   - текущий ключ считается **устаревшим**,
-   - **первый онлайн-участник** инициирует ротацию.
-3. Если все оффлайн:
-   - старый ключ временно остаётся,
-   - ротация выполняется **при первом входе любого участника**.
+## Cryptography (do not change)
 
----
+  Purpose                  Algorithm
+  ------------------------ -------------------------------
+  User keys (signatures)   Ed25519 (optional for MVP)
+  Key exchange             X25519 (ECDH)
+  Group key                32 bytes (AES-256)
+  Payload                  AES-256-GCM
+  Client storage           iOS Keychain / Secure Enclave
 
-## 0) Регистрация ключей пользователя (один раз на девайс)
-### Клиент
-- Генерирует `dhKeyPair` (X25519).
-- Сохраняет `dhPrivateKey` в Keychain.
-- Отправляет `dhPublicKey` на сервер.
+------------------------------------------------------------------------
+
+## Core Invariant (important)
+
+1.  A group **never exists in a state without a key**.
+2.  When membership changes (join/leave):
+    -   the current key is considered **outdated**,
+    -   **the first online participant** initiates rotation.
+3.  If everyone is offline:
+    -   the old key temporarily remains,
+    -   rotation is performed **when the first participant comes
+        online**.
+
+------------------------------------------------------------------------
+
+## 0) User Key Registration (once per device)
+
+### Client
+
+-   Generates `dhKeyPair` (X25519).
+-   Stores `dhPrivateKey` in Keychain.
+-   Sends `dhPublicKey` to the server.
 
 ### API
+
 `POST /user/public-keys`
-```json
+
+``` json
 { "dhPublicKey": "base64..." }
 ```
 
-Сервер хранит только публичные ключи.
+The server stores only public keys.
 
----
+------------------------------------------------------------------------
 
-## 1) Создание группы (пустой объект)
-### Клиент A
+## 1) Group Creation (empty object)
+
+### Client A
+
 `POST /group`
-```json
+
+``` json
 { "name": "Family" }
 ```
 
-### Сервер
-Создаёт:
-```
-groupId = 123
-members = [A]
-currentKeyVersion = null
-membersHash = hash([A])
-```
+### Server
 
-Возвращает:
-```json
+Creates:
+
+    groupId = 123
+    members = [A]
+    currentKeyVersion = null
+    membersHash = hash([A])
+
+Returns:
+
+``` json
 { "groupId": 123 }
 ```
 
----
+------------------------------------------------------------------------
 
-## 2) Приглашение участников
-### Клиент A
+## 2) Inviting Members
+
+### Client A
+
 `POST /group/123/invite`
-```json
+
+``` json
 { "users": ["B", "C", "G"] }
 ```
 
-### Сервер
-```
-members = [A, B, C, G]
-membersHash = hash([A, B, C, G])
-```
+### Server
 
-Сервер пушит событие:
-```
-GROUP_MEMBERS_CHANGED
-```
+    members = [A, B, C, G]
+    membersHash = hash([A, B, C, G])
 
----
+The server pushes the event:
 
-## 3) Активация ключа (первый онлайн инициирует)
-Любой онлайн (обычно A) при открытии группы:
-- Видит `currentKeyVersion == null` или `membersHash` изменился.
-- Генерирует `groupKey`, `version = 1`.
-- Запрашивает публичные ключи членов:
-  `GET /group/123/members/public-keys`.
+    GROUP_MEMBERS_CHANGED
 
-Шифрует `groupKey` для каждого и отправляет:
+------------------------------------------------------------------------
+
+## 3) Key Activation (first online user initiates)
+
+Any online user (usually A) when opening the group:
+
+-   Sees `currentKeyVersion == null` or `membersHash` has changed.
+-   Generates `groupKey`, `version = 1`.
+-   Requests public keys of members:
+
+`GET /group/123/members/public-keys`
+
+Encrypts `groupKey` for each member and sends:
+
 `POST /group/123/keys`
-```json
+
+``` json
 {
   "version": 1,
   "keys": {
@@ -121,67 +140,76 @@ GROUP_MEMBERS_CHANGED
 }
 ```
 
-Сервер:
-```
-currentKeyVersion = 1
-stores encFor*
-```
+Server:
 
-Пушит:
-```
-GROUP_KEY_UPDATED (version=1)
-```
+    currentKeyVersion = 1
+    stores encFor*
 
----
+Pushes:
 
-## 4) Получение ключа участниками
-Клиенты:
-`GET /group/123/keys` → получают свою запись →
-делают ECDH → AES decrypt → сохраняют локально `groupKey`.
+    GROUP_KEY_UPDATED (version=1)
 
----
+------------------------------------------------------------------------
 
-## 5) Отправка геолокации
-### Клиент
-```ts
+## 4) Key Retrieval by Members
+
+Clients:
+
+`GET /group/123/keys` → receive their entry →
+
+perform ECDH → AES decrypt → store `groupKey` locally.
+
+------------------------------------------------------------------------
+
+## 5) Sending Geolocation
+
+### Client
+
+``` ts
 payload = AES-256-GCM(groupKey, location, aad={groupId, version})
 ```
 
 `POST /geo/update`
-```json
+
+``` json
 { "groupId": 123, "version": 1, "payload": "base64..." }
 ```
 
-### Сервер
-Хранит только `payload` в Redis (TTL).
+### Server
 
----
+Stores only `payload` in Redis (TTL).
 
-## 6) Проверка версии
-Если клиент прислал `version < currentKeyVersion`:
-Сервер возвращает:
-```json
+------------------------------------------------------------------------
+
+## 6) Version Check
+
+If the client sends `version < currentKeyVersion`:
+
+Server returns:
+
+``` json
 { "error": "KEY_OUTDATED", "currentKeyVersion": 2 }
 ```
 
-Клиент обязан запросить новые ключи.
+The client must request new keys.
 
----
+------------------------------------------------------------------------
 
-## 7) Ротация ключа (обязательно при join/leave)
-Триггер:
-- `GROUP_MEMBERS_CHANGED`
-- или `KEY_OUTDATED`
+## 7) Key Rotation (mandatory on join/leave)
 
-Любой онлайн участник:
-1. Генерирует `newGroupKey`.
-2. `version = old + 1`.
-3. Запрашивает публичные ключи текущих членов.
-4. Шифрует для всех.
-5. Отправляет:
+Trigger: - `GROUP_MEMBERS_CHANGED` - or `KEY_OUTDATED`
+
+Any online participant:
+
+1.  Generates `newGroupKey`.
+2.  `version = old + 1`.
+3.  Requests public keys of current members.
+4.  Encrypts for all members.
+5.  Sends:
 
 `POST /group/123/rotate-key`
-```json
+
+``` json
 {
   "version": 2,
   "keys": {
@@ -194,45 +222,47 @@ payload = AES-256-GCM(groupKey, location, aad={groupId, version})
 }
 ```
 
-Сервер:
-```
-currentKeyVersion = 2
-membersHash = hash(currentMembers)
-```
+Server:
 
-Пушит:
-```
-GROUP_KEY_UPDATED (version=2)
-```
+    currentKeyVersion = 2
+    membersHash = hash(currentMembers)
 
----
+Pushes:
 
-## 8) Вход нового участника (D)
-1. Сервер добавляет D → `membersHash` меняется.
-2. Сервер пушит `GROUP_MEMBERS_CHANGED`.
-3. Первый онлайн участник инициирует ротацию.
-4. D получает только новый ключ и **не видит старые данные**.
+    GROUP_KEY_UPDATED (version=2)
 
----
+------------------------------------------------------------------------
 
-## Гарантии
-- Сервер не знает `groupKey` и не может читать данные.
-- Потеря ключа = потеря данных этой версии.
-- Ушедший участник не может читать будущие данные.
-- Новый участник не может читать прошлые данные.
+## 8) New Member Joining (D)
 
----
+1.  Server adds D → `membersHash` changes.
+2.  Server pushes `GROUP_MEMBERS_CHANGED`.
+3.  The first online member initiates rotation.
+4.  D receives only the new key and **cannot see old data**.
 
-## Push-уведомления
-Используются **только как триггер**:
-```
-{ type: "GROUP_KEY_UPDATED", groupId, version }
-```
-Ключи всегда загружаются через API.
+------------------------------------------------------------------------
 
----
+## Guarantees
 
-## Главный принцип
-Сервер — почтовый ящик.
-Ключи принадлежат людям.
-Без groupKey нет защищённой группы.
+-   The server does not know `groupKey` and cannot read data.
+-   Loss of a key = loss of data for that version.
+-   A removed participant cannot read future data.
+-   A new participant cannot read past data.
+
+------------------------------------------------------------------------
+
+## Push Notifications
+
+Used **only as a trigger**:
+
+    { type: "GROUP_KEY_UPDATED", groupId, version }
+
+Keys are always fetched through the API.
+
+------------------------------------------------------------------------
+
+## Core Principle
+
+The server is a mailbox.\
+Keys belong to people.\
+Without a `groupKey`, there is no secure group.
